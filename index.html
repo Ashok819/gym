@@ -17,9 +17,23 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{padding:14px 18px;display:flex;justify-content:space-between;align-items:center}
+
+header{
+  padding:14px 18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
 .logo{font-weight:700}
-select{background:var(--card);color:#e5e7eb;border:1px solid var(--border);border-radius:12px;padding:8px 14px}
+select,button{
+  background:var(--card);
+  color:#e5e7eb;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:8px 12px;
+}
+button{cursor:pointer}
 
 .camera-wrap{position:relative;padding:10px}
 video,canvas{width:100%;border-radius:22px}
@@ -29,12 +43,13 @@ canvas{position:absolute;top:10px;left:10px}
 .bad{box-shadow:0 0 40px rgba(239,68,68,.6);background:rgba(239,68,68,.08)}
 
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;backdrop-filter:blur(12px)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}
 .card h2{margin:0;font-size:30px;color:var(--accent)}
 .card p{margin-top:6px;font-size:13px;opacity:.8}
 
 @keyframes pulse{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
 .pulse{animation:pulse .35s ease-out;color:var(--good)}
+
 footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 </style>
 </head>
@@ -43,6 +58,7 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 
 <header>
   <div class="logo">🏋️ Avaloka</div>
+
   <select id="mode">
     <option value="pushup">Push-ups</option>
     <option value="pullup">Pull-ups</option>
@@ -50,6 +66,8 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
     <option value="squat">Squats</option>
     <option value="plank">Plank</option>
   </select>
+
+  <button id="switchCam">🔁 Camera</button>
 </header>
 
 <div class="camera-wrap">
@@ -72,7 +90,7 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 <footer>Powered by Avaloka AI</footer>
 
 <script>
-/* ================== ELEMENTS ================== */
+/* ================= ELEMENTS ================= */
 const video=document.getElementById("video");
 const canvas=document.getElementById("canvas");
 const ctx=canvas.getContext("2d");
@@ -80,28 +98,41 @@ const overlay=document.getElementById("overlay");
 const countEl=document.getElementById("count");
 const statusEl=document.getElementById("status");
 
-/* ================== STATE ================== */
+/* ================= STATE ================= */
 let count=0,state="UP",lastRepTime=0,plankStart=null;
 let angleBuf=[],prevY=null,stableFrames=0;
-const MIN_REP_TIME=600, MIN_MOVE=0.04, STABLE_FRAMES=3;
+const MIN_REP_TIME=600,MIN_MOVE=0.04,STABLE_FRAMES=3;
 
-/* ================== BACK CAMERA ================== */
-async function startBackCamera(){
+let currentFacing="environment"; // back camera default
+let mediaStream=null;
+
+/* ================= CAMERA ================= */
+async function startCamera(){
+  if(mediaStream){
+    mediaStream.getTracks().forEach(t=>t.stop());
+  }
   try{
-    video.srcObject = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{exact:"environment"}},audio:false
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{exact:currentFacing}},
+      audio:false
     });
-    statusEl.innerText="Back camera active";
   }catch{
-    video.srcObject = await navigator.mediaDevices.getUserMedia({
+    mediaStream = await navigator.mediaDevices.getUserMedia({
       video:true,audio:false
     });
-    statusEl.innerText="Default camera active";
   }
+  video.srcObject=mediaStream;
+  statusEl.innerText = currentFacing==="environment" ? "Back camera" : "Front camera";
 }
-startBackCamera();
 
-/* ================== HELPERS ================== */
+document.getElementById("switchCam").onclick=()=>{
+  currentFacing = currentFacing==="environment" ? "user" : "environment";
+  startCamera();
+};
+
+startCamera();
+
+/* ================= HELPERS ================= */
 function pulse(){countEl.classList.remove("pulse");void countEl.offsetWidth;countEl.classList.add("pulse")}
 function good(){overlay.className="good";setTimeout(()=>overlay.className="",200)}
 function bad(){overlay.className="bad"}
@@ -113,7 +144,7 @@ function angle(a,b,c){
   return Math.acos((ab.x*cb.x+ab.y*cb.y)/(Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y)))*180/Math.PI;
 }
 
-/* ================== MEDIAPIPE ================== */
+/* ================= MEDIAPIPE ================= */
 const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
 pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
 
@@ -133,16 +164,12 @@ pose.onResults(r=>{
   const bodyA=angle(sh,hip,an);
   const mode=document.getElementById("mode").value;
 
-  statusEl.innerText="Tracking";
-
   /* PUSH-UP */
   if(mode==="pushup"){
-    if(bodyA<160){bad();statusEl.innerText="Straighten body";return}
+    if(bodyA<160){bad();return}
     if(elbowA<90){state="DOWN";stableFrames=0}
-    if(elbowA>165 && state==="DOWN" && moved(sh.y)){
-      if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++;pulse();good();state="UP";stableFrames=0;
-      }
+    if(elbowA>165&&state==="DOWN"&&moved(sh.y)&&canCount()){
+      count++;pulse();good();state="UP";
     }
   }
 
@@ -150,39 +177,34 @@ pose.onResults(r=>{
   if(mode==="pullup"||mode==="chinup"){
     const chinUp=nose.y<wr.y;
     if(elbowA>155){state="DOWN";stableFrames=0}
-    if(elbowA<65 && chinUp && state==="DOWN" && moved(nose.y)){
-      if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++;pulse();good();state="UP";stableFrames=0;
-      }
+    if(elbowA<65&&chinUp&&state==="DOWN"&&moved(nose.y)&&canCount()){
+      count++;pulse();good();state="UP";
     }
-    if(!chinUp) bad();
   }
 
   /* SQUAT */
   if(mode==="squat"){
     if(kneeA<95){state="DOWN";stableFrames=0}
-    if(kneeA>165 && state==="DOWN" && moved(hip.y)){
-      if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++;pulse();good();state="UP";stableFrames=0;
-      }
+    if(kneeA>165&&state==="DOWN"&&moved(hip.y)&&canCount()){
+      count++;pulse();good();state="UP";
     }
   }
 
   /* PLANK */
   if(mode==="plank"){
     if(bodyA>165){
-      if(!plankStart) plankStart=Date.now();
+      if(!plankStart)plankStart=Date.now();
       countEl.innerText=Math.floor((Date.now()-plankStart)/1000);
       good();return;
     }else{
-      plankStart=null;bad();statusEl.innerText="Fix posture";return;
+      plankStart=null;bad();return;
     }
   }
 
   countEl.innerText=count;
 });
 
-/* ================== PIPE CAMERA ================== */
+/* ================= PIPE CAMERA ================= */
 new Camera(video,{
   onFrame:async()=>await pose.send({image:video}),
   width:640,height:480
