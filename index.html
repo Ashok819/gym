@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <style>
-:root {
+:root{
   --bg:#020617;
   --card:rgba(15,23,42,.6);
   --border:rgba(148,163,184,.15);
@@ -19,7 +19,6 @@
   --good:#22c55e;
   --bad:#ef4444;
 }
-
 *{box-sizing:border-box}
 body{
   margin:0;
@@ -27,8 +26,6 @@ body{
   color:#e5e7eb;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
-
-/* HEADER */
 header{
   padding:14px 18px;
   display:flex;
@@ -63,7 +60,6 @@ canvas{
   inset:10px;
   border-radius:22px;
   pointer-events:none;
-  transition:.2s;
 }
 .good{box-shadow:0 0 40px rgba(34,197,94,.6);background:rgba(34,197,94,.08)}
 .bad{box-shadow:0 0 40px rgba(239,68,68,.6);background:rgba(239,68,68,.08)}
@@ -124,7 +120,7 @@ footer{
 </header>
 
 <div class="camera-wrap">
-  <video id="video" autoplay muted></video>
+  <video id="video" playsinline autoplay muted></video>
   <canvas id="canvas"></canvas>
   <div id="overlay"></div>
 </div>
@@ -135,8 +131,8 @@ footer{
     <p>Reps / Seconds</p>
   </div>
   <div class="card">
-    <h2 id="status">Ready</h2>
-    <p>Form Status</p>
+    <h2 id="status">Waiting for camera</h2>
+    <p>Status</p>
   </div>
 </div>
 
@@ -152,6 +148,22 @@ const statusEl=document.getElementById("status");
 
 let count=0,state="UP",lastSpoken=0,plankStart=null;
 
+/* ---------- CAMERA EXPLICIT REQUEST ---------- */
+async function startCamera(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:"user"},
+      audio:false
+    });
+    video.srcObject=stream;
+    statusEl.innerText="Camera started";
+  }catch(e){
+    alert("Camera permission denied");
+  }
+}
+startCamera();
+
+/* ---------- HELPERS ---------- */
 function speak(text){
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance(text));
@@ -161,9 +173,13 @@ function pulse(){
   void countEl.offsetWidth;
   countEl.classList.add("pulse");
 }
-function good(){overlay.className="good";setTimeout(()=>overlay.className="",200)}
-function bad(){overlay.className="bad"}
-
+function good(){
+  overlay.className="good";
+  setTimeout(()=>overlay.className="",200);
+}
+function bad(){
+  overlay.className="bad";
+}
 function angle(a,b,c){
   const ab={x:a.x-b.x,y:a.y-b.y};
   const cb={x:c.x-b.x,y:c.y-b.y};
@@ -173,8 +189,16 @@ function angle(a,b,c){
   )*180/Math.PI;
 }
 
-const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
-pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+/* ---------- MEDIAPIPE ---------- */
+const pose=new Pose({
+  locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+});
+pose.setOptions({
+  modelComplexity:1,
+  smoothLandmarks:true,
+  minDetectionConfidence:.5,
+  minTrackingConfidence:.5
+});
 
 pose.onResults(res=>{
   canvas.width=video.videoWidth;
@@ -186,13 +210,15 @@ pose.onResults(res=>{
   drawLandmarks(ctx,res.poseLandmarks,{color:"#38bdf8",lineWidth:2});
 
   const lm=res.poseLandmarks;
-  const sh=lm[11],el=lm[13],wr=lm[15],hip=lm[23],kn=lm[25],an=lm[27],nose=lm[0];
+  const sh=lm[11],el=lm[13],wr=lm[15];
+  const hip=lm[23],kn=lm[25],an=lm[27],nose=lm[0];
+
   const elbowA=angle(sh,el,wr);
   const kneeA=angle(hip,kn,an);
   const bodyA=angle(sh,hip,an);
   const mode=document.getElementById("mode").value;
 
-  statusEl.innerText="Working";
+  statusEl.innerText="Tracking";
 
   // PUSH-UP
   if(mode==="pushup"){
@@ -225,14 +251,11 @@ pose.onResults(res=>{
   if(mode==="plank"){
     if(bodyA>165){
       if(!plankStart){plankStart=Date.now();speak("Plank started")}
-      const sec=Math.floor((Date.now()-plankStart)/1000);
-      countEl.innerText=sec;
-      statusEl.innerText="Hold steady";
+      countEl.innerText=Math.floor((Date.now()-plankStart)/1000);
       good();return;
     }else{
       plankStart=null;
-      statusEl.innerText="Fix posture";
-      bad();return;
+      bad();statusEl.innerText="Fix posture";return;
     }
   }
 
@@ -240,13 +263,14 @@ pose.onResults(res=>{
     speak(count.toString());
     lastSpoken=count;
   }
-
   countEl.innerText=count;
 });
 
+/* ---------- CAMERA PIPE ---------- */
 const cam=new Camera(video,{
   onFrame:async()=>await pose.send({image:video}),
-  width:640,height:480
+  width:640,
+  height:480
 });
 cam.start();
 </script>
