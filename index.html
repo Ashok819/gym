@@ -5,11 +5,6 @@
 <title>Avaloka Fitness AI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- PWA META -->
-<meta name="theme-color" content="#020617">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
-
 <!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -24,11 +19,7 @@
 body{margin:0;background:var(--bg);color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 header{padding:14px 18px;display:flex;justify-content:space-between;align-items:center}
 .logo{font-weight:700}
-select,button{
-  background:var(--card);color:#e5e7eb;border:1px solid var(--border);
-  border-radius:12px;padding:8px 14px
-}
-button{cursor:pointer}
+select{background:var(--card);color:#e5e7eb;border:1px solid var(--border);border-radius:12px;padding:8px 14px}
 
 .camera-wrap{position:relative;padding:10px}
 video,canvas{width:100%;border-radius:22px}
@@ -44,8 +35,6 @@ canvas{position:absolute;top:10px;left:10px}
 
 @keyframes pulse{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
 .pulse{animation:pulse .35s ease-out;color:var(--good)}
-
-.install{padding:0 14px 14px;display:none}
 footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 </style>
 </head>
@@ -80,58 +69,10 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
   </div>
 </div>
 
-<div class="install">
-  <button id="installBtn">⬇️ Install Avaloka App</button>
-</div>
-
-<footer>Install once • Works offline • Powered by Avaloka AI</footer>
+<footer>Powered by Avaloka AI</footer>
 
 <script>
-/* ================= PWA (MANIFEST + SW) ================= */
-const manifest = {
-  name: "Avaloka Fitness AI",
-  short_name: "Avaloka",
-  start_url: ".",
-  display: "standalone",
-  background_color: "#020617",
-  theme_color: "#020617",
-  icons: [{
-    src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAF0lEQVR4Xu3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAwA8M7AABXw2JzQAAAABJRU5ErkJggg==",
-    sizes: "192x192",
-    type: "image/png"
-  }]
-};
-const manifestBlob = new Blob([JSON.stringify(manifest)], {type:"application/json"});
-const manifestURL = URL.createObjectURL(manifestBlob);
-const link = document.createElement("link");
-link.rel = "manifest"; link.href = manifestURL;
-document.head.appendChild(link);
-
-// Service Worker (offline)
-if ("serviceWorker" in navigator) {
-  const swCode = `
-    self.addEventListener("install",e=>{
-      e.waitUntil(caches.open("avaloka").then(c=>c.addAll(["./"])))
-    });
-    self.addEventListener("fetch",e=>{
-      e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))
-    });
-  `;
-  const swBlob = new Blob([swCode], {type:"text/javascript"});
-  navigator.serviceWorker.register(URL.createObjectURL(swBlob));
-}
-
-// Install prompt
-let deferredPrompt;
-const installUI=document.querySelector(".install");
-window.addEventListener("beforeinstallprompt",e=>{
-  e.preventDefault(); deferredPrompt=e; installUI.style.display="block";
-});
-document.getElementById("installBtn").onclick=()=>{
-  deferredPrompt.prompt(); deferredPrompt=null; installUI.style.display="none";
-};
-
-/* ================= FITNESS AI (ROCK SOLID) ================= */
+/* ================== ELEMENTS ================== */
 const video=document.getElementById("video");
 const canvas=document.getElementById("canvas");
 const ctx=canvas.getContext("2d");
@@ -139,37 +80,46 @@ const overlay=document.getElementById("overlay");
 const countEl=document.getElementById("count");
 const statusEl=document.getElementById("status");
 
+/* ================== STATE ================== */
 let count=0,state="UP",lastRepTime=0,plankStart=null;
 let angleBuf=[],prevY=null,stableFrames=0;
 const MIN_REP_TIME=600, MIN_MOVE=0.04, STABLE_FRAMES=3;
 
-// Back camera with fallback
-(async ()=>{
+/* ================== BACK CAMERA ================== */
+async function startBackCamera(){
   try{
     video.srcObject = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{exact:"environment"}}, audio:false
+      video:{facingMode:{exact:"environment"}},audio:false
     });
+    statusEl.innerText="Back camera active";
   }catch{
-    video.srcObject = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    video.srcObject = await navigator.mediaDevices.getUserMedia({
+      video:true,audio:false
+    });
+    statusEl.innerText="Default camera active";
   }
-})();
+}
+startBackCamera();
 
-function canCount(){const n=Date.now(); if(n-lastRepTime<MIN_REP_TIME)return false; lastRepTime=n; return true}
-function smooth(v){angleBuf.push(v); if(angleBuf.length>5) angleBuf.shift(); return angleBuf.reduce((a,b)=>a+b,0)/angleBuf.length}
-function moved(y){ if(prevY===null){prevY=y;return false} const d=Math.abs(y-prevY); prevY=y; return d>MIN_MOVE}
-function good(){overlay.className="good"; setTimeout(()=>overlay.className="",200)}
+/* ================== HELPERS ================== */
+function pulse(){countEl.classList.remove("pulse");void countEl.offsetWidth;countEl.classList.add("pulse")}
+function good(){overlay.className="good";setTimeout(()=>overlay.className="",200)}
 function bad(){overlay.className="bad"}
-function pulse(){countEl.classList.remove("pulse"); void countEl.offsetWidth; countEl.classList.add("pulse")}
+function canCount(){const n=Date.now();if(n-lastRepTime<MIN_REP_TIME)return false;lastRepTime=n;return true}
+function smooth(v){angleBuf.push(v);if(angleBuf.length>5)angleBuf.shift();return angleBuf.reduce((a,b)=>a+b,0)/angleBuf.length}
+function moved(y){if(prevY===null){prevY=y;return false}const d=Math.abs(y-prevY);prevY=y;return d>MIN_MOVE}
 function angle(a,b,c){
   const ab={x:a.x-b.x,y:a.y-b.y},cb={x:c.x-b.x,y:c.y-b.y};
   return Math.acos((ab.x*cb.x+ab.y*cb.y)/(Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y)))*180/Math.PI;
 }
 
+/* ================== MEDIAPIPE ================== */
 const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
 pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
 
 pose.onResults(r=>{
-  canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(!r.poseLandmarks)return;
 
@@ -182,52 +132,61 @@ pose.onResults(r=>{
   const kneeA=smooth(angle(hip,kn,an));
   const bodyA=angle(sh,hip,an);
   const mode=document.getElementById("mode").value;
+
   statusEl.innerText="Tracking";
 
+  /* PUSH-UP */
   if(mode==="pushup"){
     if(bodyA<160){bad();statusEl.innerText="Straighten body";return}
-    if(elbowA<90){state="DOWN"; stableFrames=0}
+    if(elbowA<90){state="DOWN";stableFrames=0}
     if(elbowA>165 && state==="DOWN" && moved(sh.y)){
       if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++; pulse(); good(); state="UP"; stableFrames=0;
+        count++;pulse();good();state="UP";stableFrames=0;
       }
     }
   }
 
+  /* PULL / CHIN */
   if(mode==="pullup"||mode==="chinup"){
     const chinUp=nose.y<wr.y;
-    if(elbowA>155){state="DOWN"; stableFrames=0}
+    if(elbowA>155){state="DOWN";stableFrames=0}
     if(elbowA<65 && chinUp && state==="DOWN" && moved(nose.y)){
       if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++; pulse(); good(); state="UP"; stableFrames=0;
+        count++;pulse();good();state="UP";stableFrames=0;
       }
     }
     if(!chinUp) bad();
   }
 
+  /* SQUAT */
   if(mode==="squat"){
-    if(kneeA<95){state="DOWN"; stableFrames=0}
+    if(kneeA<95){state="DOWN";stableFrames=0}
     if(kneeA>165 && state==="DOWN" && moved(hip.y)){
       if(++stableFrames>=STABLE_FRAMES && canCount()){
-        count++; pulse(); good(); state="UP"; stableFrames=0;
+        count++;pulse();good();state="UP";stableFrames=0;
       }
     }
   }
 
+  /* PLANK */
   if(mode==="plank"){
     if(bodyA>165){
       if(!plankStart) plankStart=Date.now();
       countEl.innerText=Math.floor((Date.now()-plankStart)/1000);
-      good(); return;
+      good();return;
     }else{
-      plankStart=null; bad(); statusEl.innerText="Fix posture"; return;
+      plankStart=null;bad();statusEl.innerText="Fix posture";return;
     }
   }
 
   countEl.innerText=count;
 });
 
-new Camera(video,{onFrame:async()=>await pose.send({image:video}),width:640,height:480}).start();
+/* ================== PIPE CAMERA ================== */
+new Camera(video,{
+  onFrame:async()=>await pose.send({image:video}),
+  width:640,height:480
+}).start();
 </script>
 
 </body>
