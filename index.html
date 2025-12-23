@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Avaloka Fitness AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<style>
+:root {
+  --bg:#020617;
+  --card:rgba(15,23,42,.6);
+  --border:rgba(148,163,184,.15);
+  --accent:#38bdf8;
+  --good:#22c55e;
+  --bad:#ef4444;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:#e5e7eb;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+
+/* HEADER */
+header{
+  padding:14px 18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.logo{font-weight:700;font-size:18px}
+select{
+  background:var(--card);
+  color:#e5e7eb;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:8px 14px;
+}
+
+/* CAMERA */
+.camera-wrap{
+  position:relative;
+  padding:10px;
+}
+video,canvas{
+  width:100%;
+  border-radius:22px;
+}
+canvas{
+  position:absolute;
+  top:10px;
+  left:10px;
+}
+#overlay{
+  position:absolute;
+  inset:10px;
+  border-radius:22px;
+  pointer-events:none;
+  transition:.2s;
+}
+.good{box-shadow:0 0 40px rgba(34,197,94,.6);background:rgba(34,197,94,.08)}
+.bad{box-shadow:0 0 40px rgba(239,68,68,.6);background:rgba(239,68,68,.08)}
+
+/* STATS */
+.stats{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  padding:14px;
+}
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:16px;
+  backdrop-filter:blur(12px);
+}
+.card h2{
+  margin:0;
+  font-size:30px;
+  color:var(--accent);
+}
+.card p{
+  margin-top:6px;
+  font-size:13px;
+  opacity:.8;
+}
+
+/* PULSE */
+@keyframes pulse{
+  0%{transform:scale(1)}
+  40%{transform:scale(1.35)}
+  100%{transform:scale(1)}
+}
+.pulse{animation:pulse .35s ease-out;color:var(--good)}
+
+footer{
+  text-align:center;
+  padding-bottom:14px;
+  font-size:12px;
+  opacity:.5;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">🏋️ Avaloka</div>
+  <select id="mode">
+    <option value="pushup">Push-ups</option>
+    <option value="pullup">Pull-ups</option>
+    <option value="chinup">Chin-ups</option>
+    <option value="squat">Squats</option>
+    <option value="plank">Plank</option>
+  </select>
+</header>
+
+<div class="camera-wrap">
+  <video id="video" autoplay muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="overlay"></div>
+</div>
+
+<div class="stats">
+  <div class="card">
+    <h2 id="count">0</h2>
+    <p>Reps / Seconds</p>
+  </div>
+  <div class="card">
+    <h2 id="status">Ready</h2>
+    <p>Form Status</p>
+  </div>
+</div>
+
+<footer>Powered by Avaloka AI</footer>
+
+<script>
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const overlay=document.getElementById("overlay");
+const countEl=document.getElementById("count");
+const statusEl=document.getElementById("status");
+
+let count=0,state="UP",lastSpoken=0,plankStart=null;
+
+function speak(text){
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+function pulse(){
+  countEl.classList.remove("pulse");
+  void countEl.offsetWidth;
+  countEl.classList.add("pulse");
+}
+function good(){overlay.className="good";setTimeout(()=>overlay.className="",200)}
+function bad(){overlay.className="bad"}
+
+function angle(a,b,c){
+  const ab={x:a.x-b.x,y:a.y-b.y};
+  const cb={x:c.x-b.x,y:c.y-b.y};
+  return Math.acos(
+    (ab.x*cb.x+ab.y*cb.y) /
+    (Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y))
+  )*180/Math.PI;
+}
+
+const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
+pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+
+pose.onResults(res=>{
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!res.poseLandmarks)return;
+
+  drawConnectors(ctx,res.poseLandmarks,POSE_CONNECTIONS,{color:"#22c55e",lineWidth:4});
+  drawLandmarks(ctx,res.poseLandmarks,{color:"#38bdf8",lineWidth:2});
+
+  const lm=res.poseLandmarks;
+  const sh=lm[11],el=lm[13],wr=lm[15],hip=lm[23],kn=lm[25],an=lm[27],nose=lm[0];
+  const elbowA=angle(sh,el,wr);
+  const kneeA=angle(hip,kn,an);
+  const bodyA=angle(sh,hip,an);
+  const mode=document.getElementById("mode").value;
+
+  statusEl.innerText="Working";
+
+  // PUSH-UP
+  if(mode==="pushup"){
+    if(bodyA<160){bad();statusEl.innerText="Straighten body";return}
+    if(elbowA<80)state="DOWN";
+    if(elbowA>160&&state==="DOWN"){
+      count++;pulse();good();state="UP";
+    }
+  }
+
+  // PULL / CHIN
+  if(mode==="pullup"||mode==="chinup"){
+    const chinUp=nose.y<wr.y;
+    if(elbowA>150)state="DOWN";
+    if(elbowA<70&&state==="DOWN"&&chinUp){
+      count++;pulse();good();state="UP";
+    }
+    if(!chinUp)bad();
+  }
+
+  // SQUAT
+  if(mode==="squat"){
+    if(kneeA<90)state="DOWN";
+    if(kneeA>160&&state==="DOWN"){
+      count++;pulse();good();state="UP";
+    }
+  }
+
+  // PLANK
+  if(mode==="plank"){
+    if(bodyA>165){
+      if(!plankStart){plankStart=Date.now();speak("Plank started")}
+      const sec=Math.floor((Date.now()-plankStart)/1000);
+      countEl.innerText=sec;
+      statusEl.innerText="Hold steady";
+      good();return;
+    }else{
+      plankStart=null;
+      statusEl.innerText="Fix posture";
+      bad();return;
+    }
+  }
+
+  if(count>lastSpoken){
+    speak(count.toString());
+    lastSpoken=count;
+  }
+
+  countEl.innerText=count;
+});
+
+const cam=new Camera(video,{
+  onFrame:async()=>await pose.send({image:video}),
+  width:640,height:480
+});
+cam.start();
+</script>
+
+</body>
+</html>
