@@ -2,24 +2,75 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Avaloka Lens</title>
+<title>Avaloka Vision – ML + OCR</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- TF.js + Object Detection -->
+<style>
+  body {
+    margin: 0;
+    background: #020617;
+    color: #e5e7eb;
+    font-family: system-ui;
+    text-align: center;
+  }
+  h1 {
+    margin: 10px;
+    color: #38bdf8;
+  }
+  .wrap {
+    position: relative;
+    max-width: 420px;
+    margin: auto;
+    aspect-ratio: 3 / 4;
+  }
+  video, canvas {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+  }
+  .info {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(2,6,23,0.9);
+    padding: 12px 16px;
+    border-radius: 14px;
+    max-width: 92%;
+    font-size: 14px;
+  }
+</style>
+</head>
+
+<body>
+
+<h1>🔍 Avaloka Vision</h1>
+
+<div class="wrap">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="info" id="info">Starting camera…</div>
+
+<!-- TensorFlow -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
-<!-- MediaPipe OCR -->
+<!-- OCR + ML Logic -->
 <script type="module">
 import { TextRecognizer, FilesetResolver }
 from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-let video, canvas, ctx, explainBox;
-let objectModel, textRecognizer;
-let lastSpoken = "";
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const info = document.getElementById("info");
 
-async function setupCamera() {
-  video = document.getElementById("video");
+let objectModel;
+let textRecognizer;
+
+async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
   });
@@ -28,30 +79,23 @@ async function setupCamera() {
 }
 
 function explain(label, text) {
-  if (label === "book") return "📘 This is a book. It contains knowledge for learning.";
-  if (label === "bottle") return "🧴 This is a bottle. It stores liquids.";
-  if (label === "person") return "👤 This is a human being.";
+  if (label === "book") return "📘 Book detected. It contains knowledge.";
+  if (label === "person") return "👤 Human detected.";
+  if (label === "bottle") return "🧴 Bottle detected.";
 
   if (text.includes("photosynthesis"))
     return "🌱 Photosynthesis: plants make food using sunlight.";
 
-  return label
-    ? `🔍 This looks like a ${label}.`
-    : "📖 I can read text from books and notes.";
-}
+  if (text.length > 10)
+    return "📖 Text detected. Looks educational.";
 
-function speak(text) {
-  if (text === lastSpoken) return;
-  lastSpoken = text;
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.9;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
+  return "📸 Point camera at an object or text";
 }
 
 async function detectLoop() {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+  // Object detection
   const objects = await objectModel.detect(video);
   let label = "";
 
@@ -61,25 +105,20 @@ async function detectLoop() {
     ctx.lineWidth = 2;
     ctx.strokeRect(...o.bbox);
     ctx.fillStyle = "#38bdf8";
-    ctx.fillText(o.class, o.bbox[0], o.bbox[1] - 5);
+    ctx.fillText(o.class, o.bbox[0], o.bbox[1] - 6);
   });
 
+  // OCR
   const textResult = textRecognizer.recognize(video);
   const text = textResult.text?.toLowerCase() || "";
 
-  const explanation = explain(label, text);
-  explainBox.innerText = explanation;
-  speak(explanation);
+  info.innerText = explain(label, text);
 
   requestAnimationFrame(detectLoop);
 }
 
 async function init() {
-  await setupCamera();
-
-  canvas = document.getElementById("canvas");
-  ctx = canvas.getContext("2d");
-  explainBox = document.getElementById("explain");
+  await startCamera();
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
@@ -97,55 +136,15 @@ async function init() {
     }
   });
 
+  info.innerText = "✅ Camera + AI ready";
   detectLoop();
 }
 
-window.onload = init;
+init().catch(err => {
+  info.innerText = "❌ Error: " + err.message;
+  alert(err.message);
+});
 </script>
 
-<style>
-body {
-  margin: 0;
-  background: #020617;
-  color: #e5e7eb;
-  font-family: system-ui;
-  text-align: center;
-}
-h1 { color:#38bdf8; margin:10px; }
-.container {
-  position: relative;
-  max-width: 420px;
-  margin: auto;
-  aspect-ratio: 3/4;
-}
-video, canvas {
-  position:absolute;
-  width:100%;
-  height:100%;
-}
-.explain {
-  position:fixed;
-  bottom:12px;
-  left:50%;
-  transform:translateX(-50%);
-  background:rgba(2,6,23,0.9);
-  padding:14px 18px;
-  border-radius:14px;
-  max-width:92%;
-}
-</style>
-</head>
-
-<body>
-<h1>🔍 Avaloka Lens</h1>
-
-<div class="container">
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
-</div>
-
-<div class="explain" id="explain">
-  Point the camera at an object or text 📸
-</div>
 </body>
 </html>
