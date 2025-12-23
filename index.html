@@ -16,24 +16,23 @@
   --accent:#38bdf8;--good:#22c55e;--bad:#ef4444;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{margin:0;background:var(--bg);color:#e5e7eb;font-family:system-ui}
 
 header{
   padding:14px 18px;
   display:flex;
-  justify-content:space-between;
-  align-items:center;
   gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
 }
-.logo{font-weight:700}
-select,button{
+button,select{
   background:var(--card);
   color:#e5e7eb;
   border:1px solid var(--border);
   border-radius:12px;
   padding:8px 12px;
+  cursor:pointer;
 }
-button{cursor:pointer}
 
 .camera-wrap{position:relative;padding:10px}
 video,canvas{width:100%;border-radius:22px}
@@ -45,19 +44,16 @@ canvas{position:absolute;top:10px;left:10px}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}
 .card h2{margin:0;font-size:30px;color:var(--accent)}
-.card p{margin-top:6px;font-size:13px;opacity:.8}
 
 @keyframes pulse{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
 .pulse{animation:pulse .35s ease-out;color:var(--good)}
-
-footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 </style>
 </head>
 
 <body>
 
 <header>
-  <div class="logo">🏋️ Avaloka</div>
+  <strong>Avaloka</strong>
 
   <select id="mode">
     <option value="pushup">Push-ups</option>
@@ -67,7 +63,8 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
     <option value="plank">Plank</option>
   </select>
 
-  <button id="switchCam">🔁 Camera</button>
+  <button id="frontBtn">🤳 Front Camera</button>
+  <button id="backBtn">📷 Back Camera</button>
 </header>
 
 <div class="camera-wrap">
@@ -77,74 +74,59 @@ footer{text-align:center;padding-bottom:14px;font-size:12px;opacity:.5}
 </div>
 
 <div class="stats">
-  <div class="card">
-    <h2 id="count">0</h2>
-    <p>Reps / Seconds</p>
-  </div>
-  <div class="card">
-    <h2 id="status">Starting…</h2>
-    <p>Status</p>
-  </div>
+  <div class="card"><h2 id="count">0</h2></div>
+  <div class="card"><h2 id="status">Starting…</h2></div>
 </div>
 
-<footer>Powered by Avaloka AI</footer>
-
 <script>
-/* ================= ELEMENTS ================= */
+/* ========= CAMERA (UNIVERSAL & SAFE) ========= */
 const video=document.getElementById("video");
+let stream=null;
+
+async function startCamera(facing){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:facing },
+      audio:false
+    });
+  }catch{
+    stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
+  }
+  video.srcObject = stream;
+}
+
+document.getElementById("frontBtn").onclick=()=>startCamera("user");
+document.getElementById("backBtn").onclick=()=>startCamera("environment");
+
+// default = back camera
+startCamera("environment");
+
+/* ========= CORE FITNESS LOGIC ========= */
 const canvas=document.getElementById("canvas");
 const ctx=canvas.getContext("2d");
 const overlay=document.getElementById("overlay");
 const countEl=document.getElementById("count");
 const statusEl=document.getElementById("status");
 
-/* ================= STATE ================= */
-let count=0,state="UP",lastRepTime=0,plankStart=null;
-let angleBuf=[],prevY=null,stableFrames=0;
-const MIN_REP_TIME=600,MIN_MOVE=0.04,STABLE_FRAMES=3;
+let count=0,state="UP",lastTime=0,prevY=null;
+const MIN_TIME=600,MIN_MOVE=0.04;
 
-let currentFacing="environment"; // back camera default
-let mediaStream=null;
-
-/* ================= CAMERA ================= */
-async function startCamera(){
-  if(mediaStream){
-    mediaStream.getTracks().forEach(t=>t.stop());
-  }
-  try{
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{exact:currentFacing}},
-      audio:false
-    });
-  }catch{
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video:true,audio:false
-    });
-  }
-  video.srcObject=mediaStream;
-  statusEl.innerText = currentFacing==="environment" ? "Back camera" : "Front camera";
-}
-
-document.getElementById("switchCam").onclick=()=>{
-  currentFacing = currentFacing==="environment" ? "user" : "environment";
-  startCamera();
-};
-
-startCamera();
-
-/* ================= HELPERS ================= */
-function pulse(){countEl.classList.remove("pulse");void countEl.offsetWidth;countEl.classList.add("pulse")}
-function good(){overlay.className="good";setTimeout(()=>overlay.className="",200)}
-function bad(){overlay.className="bad"}
-function canCount(){const n=Date.now();if(n-lastRepTime<MIN_REP_TIME)return false;lastRepTime=n;return true}
-function smooth(v){angleBuf.push(v);if(angleBuf.length>5)angleBuf.shift();return angleBuf.reduce((a,b)=>a+b,0)/angleBuf.length}
-function moved(y){if(prevY===null){prevY=y;return false}const d=Math.abs(y-prevY);prevY=y;return d>MIN_MOVE}
 function angle(a,b,c){
   const ab={x:a.x-b.x,y:a.y-b.y},cb={x:c.x-b.x,y:c.y-b.y};
   return Math.acos((ab.x*cb.x+ab.y*cb.y)/(Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y)))*180/Math.PI;
 }
+function canCount(){
+  const n=Date.now();
+  if(n-lastTime<MIN_TIME) return false;
+  lastTime=n; return true;
+}
+function moved(y){
+  if(prevY===null){prevY=y;return false}
+  const d=Math.abs(y-prevY); prevY=y;
+  return d>MIN_MOVE;
+}
 
-/* ================= MEDIAPIPE ================= */
 const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
 pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
 
@@ -152,59 +134,52 @@ pose.onResults(r=>{
   canvas.width=video.videoWidth;
   canvas.height=video.videoHeight;
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(!r.poseLandmarks)return;
+  if(!r.poseLandmarks) return;
 
-  drawConnectors(ctx,r.poseLandmarks,POSE_CONNECTIONS,{color:"#22c55e",lineWidth:4});
-  drawLandmarks(ctx,r.poseLandmarks,{color:"#38bdf8",lineWidth:2});
+  drawConnectors(ctx,r.poseLandmarks,POSE_CONNECTIONS);
+  drawLandmarks(ctx,r.poseLandmarks);
 
   const lm=r.poseLandmarks;
   const sh=lm[11],el=lm[13],wr=lm[15],hip=lm[23],kn=lm[25],an=lm[27],nose=lm[0];
-  const elbowA=smooth(angle(sh,el,wr));
-  const kneeA=smooth(angle(hip,kn,an));
+  const elbowA=angle(sh,el,wr);
+  const kneeA=angle(hip,kn,an);
   const bodyA=angle(sh,hip,an);
   const mode=document.getElementById("mode").value;
 
-  /* PUSH-UP */
+  statusEl.innerText="Tracking";
+
   if(mode==="pushup"){
-    if(bodyA<160){bad();return}
-    if(elbowA<90){state="DOWN";stableFrames=0}
-    if(elbowA>165&&state==="DOWN"&&moved(sh.y)&&canCount()){
-      count++;pulse();good();state="UP";
+    if(elbowA<90) state="DOWN";
+    if(elbowA>165 && state==="DOWN" && moved(sh.y) && canCount()){
+      count++; state="UP";
     }
   }
 
-  /* PULL / CHIN */
+  if(mode==="squat"){
+    if(kneeA<95) state="DOWN";
+    if(kneeA>165 && state==="DOWN" && moved(hip.y) && canCount()){
+      count++; state="UP";
+    }
+  }
+
   if(mode==="pullup"||mode==="chinup"){
     const chinUp=nose.y<wr.y;
-    if(elbowA>155){state="DOWN";stableFrames=0}
-    if(elbowA<65&&chinUp&&state==="DOWN"&&moved(nose.y)&&canCount()){
-      count++;pulse();good();state="UP";
+    if(elbowA>155) state="DOWN";
+    if(elbowA<65 && chinUp && state==="DOWN" && moved(nose.y) && canCount()){
+      count++; state="UP";
     }
   }
 
-  /* SQUAT */
-  if(mode==="squat"){
-    if(kneeA<95){state="DOWN";stableFrames=0}
-    if(kneeA>165&&state==="DOWN"&&moved(hip.y)&&canCount()){
-      count++;pulse();good();state="UP";
-    }
-  }
-
-  /* PLANK */
   if(mode==="plank"){
     if(bodyA>165){
-      if(!plankStart)plankStart=Date.now();
-      countEl.innerText=Math.floor((Date.now()-plankStart)/1000);
-      good();return;
-    }else{
-      plankStart=null;bad();return;
-    }
+      countEl.innerText=Math.floor((Date.now()-lastTime)/1000);
+      return;
+    }else lastTime=Date.now();
   }
 
   countEl.innerText=count;
 });
 
-/* ================= PIPE CAMERA ================= */
 new Camera(video,{
   onFrame:async()=>await pose.send({image:video}),
   width:640,height:480
