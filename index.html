@@ -2,189 +2,150 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Avaloka Fitness AI</title>
+<title>Avaloka Lens</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- MediaPipe -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<!-- TF.js + Object Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<!-- MediaPipe OCR -->
+<script type="module">
+import { TextRecognizer, FilesetResolver }
+from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+let video, canvas, ctx, explainBox;
+let objectModel, textRecognizer;
+let lastSpoken = "";
+
+async function setupCamera() {
+  video = document.getElementById("video");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" }
+  });
+  video.srcObject = stream;
+  return new Promise(r => video.onloadedmetadata = r);
+}
+
+function explain(label, text) {
+  if (label === "book") return "📘 This is a book. It contains knowledge for learning.";
+  if (label === "bottle") return "🧴 This is a bottle. It stores liquids.";
+  if (label === "person") return "👤 This is a human being.";
+
+  if (text.includes("photosynthesis"))
+    return "🌱 Photosynthesis: plants make food using sunlight.";
+
+  return label
+    ? `🔍 This looks like a ${label}.`
+    : "📖 I can read text from books and notes.";
+}
+
+function speak(text) {
+  if (text === lastSpoken) return;
+  lastSpoken = text;
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+async function detectLoop() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const objects = await objectModel.detect(video);
+  let label = "";
+
+  objects.forEach(o => {
+    label = o.class;
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(...o.bbox);
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillText(o.class, o.bbox[0], o.bbox[1] - 5);
+  });
+
+  const textResult = textRecognizer.recognize(video);
+  const text = textResult.text?.toLowerCase() || "";
+
+  const explanation = explain(label, text);
+  explainBox.innerText = explanation;
+  speak(explanation);
+
+  requestAnimationFrame(detectLoop);
+}
+
+async function init() {
+  await setupCamera();
+
+  canvas = document.getElementById("canvas");
+  ctx = canvas.getContext("2d");
+  explainBox = document.getElementById("explain");
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  objectModel = await cocoSsd.load();
+
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+  );
+
+  textRecognizer = await TextRecognizer.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-assets/text_recognizer.tflite"
+    }
+  });
+
+  detectLoop();
+}
+
+window.onload = init;
+</script>
 
 <style>
-:root{
-  --bg:#020617;--card:rgba(15,23,42,.6);--border:rgba(148,163,184,.15);
-  --accent:#38bdf8;--good:#22c55e;--bad:#ef4444;
+body {
+  margin: 0;
+  background: #020617;
+  color: #e5e7eb;
+  font-family: system-ui;
+  text-align: center;
 }
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:#e5e7eb;font-family:system-ui}
-
-header{
+h1 { color:#38bdf8; margin:10px; }
+.container {
+  position: relative;
+  max-width: 420px;
+  margin: auto;
+  aspect-ratio: 3/4;
+}
+video, canvas {
+  position:absolute;
+  width:100%;
+  height:100%;
+}
+.explain {
+  position:fixed;
+  bottom:12px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(2,6,23,0.9);
   padding:14px 18px;
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  align-items:center;
+  border-radius:14px;
+  max-width:92%;
 }
-button,select{
-  background:var(--card);
-  color:#e5e7eb;
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:8px 12px;
-  cursor:pointer;
-}
-
-.camera-wrap{position:relative;padding:10px}
-video,canvas{width:100%;border-radius:22px}
-canvas{position:absolute;top:10px;left:10px}
-#overlay{position:absolute;inset:10px;border-radius:22px;pointer-events:none}
-.good{box-shadow:0 0 40px rgba(34,197,94,.6);background:rgba(34,197,94,.08)}
-.bad{box-shadow:0 0 40px rgba(239,68,68,.6);background:rgba(239,68,68,.08)}
-
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}
-.card h2{margin:0;font-size:30px;color:var(--accent)}
-
-@keyframes pulse{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
-.pulse{animation:pulse .35s ease-out;color:var(--good)}
 </style>
 </head>
 
 <body>
+<h1>🔍 Avaloka Lens</h1>
 
-<header>
-  <strong>Avaloka</strong>
-
-  <select id="mode">
-    <option value="pushup">Push-ups</option>
-    <option value="pullup">Pull-ups</option>
-    <option value="chinup">Chin-ups</option>
-    <option value="squat">Squats</option>
-    <option value="plank">Plank</option>
-  </select>
-
-  <button id="frontBtn">🤳 Front Camera</button>
-  <button id="backBtn">📷 Back Camera</button>
-</header>
-
-<div class="camera-wrap">
-  <video id="video" playsinline autoplay muted></video>
+<div class="container">
+  <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
-  <div id="overlay"></div>
 </div>
 
-<div class="stats">
-  <div class="card"><h2 id="count">0</h2></div>
-  <div class="card"><h2 id="status">Starting…</h2></div>
+<div class="explain" id="explain">
+  Point the camera at an object or text 📸
 </div>
-
-<script>
-/* ========= CAMERA (UNIVERSAL & SAFE) ========= */
-const video=document.getElementById("video");
-let stream=null;
-
-async function startCamera(facing){
-  if(stream) stream.getTracks().forEach(t=>t.stop());
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:facing },
-      audio:false
-    });
-  }catch{
-    stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
-  }
-  video.srcObject = stream;
-}
-
-document.getElementById("frontBtn").onclick=()=>startCamera("user");
-document.getElementById("backBtn").onclick=()=>startCamera("environment");
-
-// default = back camera
-startCamera("environment");
-
-/* ========= CORE FITNESS LOGIC ========= */
-const canvas=document.getElementById("canvas");
-const ctx=canvas.getContext("2d");
-const overlay=document.getElementById("overlay");
-const countEl=document.getElementById("count");
-const statusEl=document.getElementById("status");
-
-let count=0,state="UP",lastTime=0,prevY=null;
-const MIN_TIME=600,MIN_MOVE=0.04;
-
-function angle(a,b,c){
-  const ab={x:a.x-b.x,y:a.y-b.y},cb={x:c.x-b.x,y:c.y-b.y};
-  return Math.acos((ab.x*cb.x+ab.y*cb.y)/(Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y)))*180/Math.PI;
-}
-function canCount(){
-  const n=Date.now();
-  if(n-lastTime<MIN_TIME) return false;
-  lastTime=n; return true;
-}
-function moved(y){
-  if(prevY===null){prevY=y;return false}
-  const d=Math.abs(y-prevY); prevY=y;
-  return d>MIN_MOVE;
-}
-
-const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
-pose.setOptions({modelComplexity:1,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
-
-pose.onResults(r=>{
-  canvas.width=video.videoWidth;
-  canvas.height=video.videoHeight;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(!r.poseLandmarks) return;
-
-  drawConnectors(ctx,r.poseLandmarks,POSE_CONNECTIONS);
-  drawLandmarks(ctx,r.poseLandmarks);
-
-  const lm=r.poseLandmarks;
-  const sh=lm[11],el=lm[13],wr=lm[15],hip=lm[23],kn=lm[25],an=lm[27],nose=lm[0];
-  const elbowA=angle(sh,el,wr);
-  const kneeA=angle(hip,kn,an);
-  const bodyA=angle(sh,hip,an);
-  const mode=document.getElementById("mode").value;
-
-  statusEl.innerText="Tracking";
-
-  if(mode==="pushup"){
-    if(elbowA<90) state="DOWN";
-    if(elbowA>165 && state==="DOWN" && moved(sh.y) && canCount()){
-      count++; state="UP";
-    }
-  }
-
-  if(mode==="squat"){
-    if(kneeA<95) state="DOWN";
-    if(kneeA>165 && state==="DOWN" && moved(hip.y) && canCount()){
-      count++; state="UP";
-    }
-  }
-
-  if(mode==="pullup"||mode==="chinup"){
-    const chinUp=nose.y<wr.y;
-    if(elbowA>155) state="DOWN";
-    if(elbowA<65 && chinUp && state==="DOWN" && moved(nose.y) && canCount()){
-      count++; state="UP";
-    }
-  }
-
-  if(mode==="plank"){
-    if(bodyA>165){
-      countEl.innerText=Math.floor((Date.now()-lastTime)/1000);
-      return;
-    }else lastTime=Date.now();
-  }
-
-  countEl.innerText=count;
-});
-
-new Camera(video,{
-  onFrame:async()=>await pose.send({image:video}),
-  width:640,height:480
-}).start();
-</script>
-
 </body>
 </html>
