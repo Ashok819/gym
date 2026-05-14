@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>3D Selfie Viewer</title>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    background:#000;
+    font-family:Arial,sans-serif;
+    overflow:hidden;
+}
+
+.scene{
+    width:100%;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    perspective:1200px;
+}
+
+.viewer{
+    position:relative;
+    width:260px;
+    height:360px;
+    transform-style:preserve-3d;
+    transition:transform 0.1s linear;
+}
+
+.face{
+    position:absolute;
+    width:260px;
+    height:360px;
+    border-radius:25px;
+    overflow:hidden;
+    border:3px solid rgba(255,255,255,0.15);
+    background:#111;
+    box-shadow:0 20px 40px rgba(0,0,0,0.6);
+}
+
+.face img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+}
+
+/* FRONT */
+.front{
+    transform:translateZ(130px);
+}
+
+/* BACK */
+.back{
+    transform:rotateY(180deg) translateZ(130px);
+}
+
+/* LEFT */
+.left{
+    width:260px;
+    transform:rotateY(-90deg) translateZ(130px);
+}
+
+/* RIGHT */
+.right{
+    width:260px;
+    transform:rotateY(90deg) translateZ(130px);
+}
+
+.top-text{
+    position:absolute;
+    top:30px;
+    width:100%;
+    text-align:center;
+    color:white;
+    z-index:10;
+}
+
+.top-text h1{
+    font-size:32px;
+    margin-bottom:10px;
+}
+
+.top-text p{
+    opacity:0.7;
+}
+
+.controls{
+    position:absolute;
+    bottom:40px;
+    width:100%;
+    display:flex;
+    justify-content:center;
+    gap:20px;
+}
+
+button{
+    padding:14px 22px;
+    border:none;
+    border-radius:50px;
+    background:rgba(255,255,255,0.12);
+    color:white;
+    backdrop-filter:blur(10px);
+    cursor:pointer;
+    font-size:16px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="top-text">
+    <h1>3D Selfie Preview</h1>
+    <p>Drag or rotate your model</p>
+</div>
+
+<div class="scene">
+
+    <div class="viewer" id="viewer">
+
+        <div class="face front">
+            <img src="front.jpg">
+        </div>
+
+        <div class="face back">
+            <img src="back.jpg">
+        </div>
+
+        <div class="face left">
+            <img src="left.jpg">
+        </div>
+
+        <div class="face right">
+            <img src="right.jpg">
+        </div>
+
+    </div>
+
+</div>
+
+<div class="controls">
+    <button onclick="rotateLeft()">⟲ Left</button>
+    <button onclick="rotateRight()">⟳ Right</button>
+</div>
+
+<script>
+
+const viewer = document.getElementById("viewer");
+
+let rotateY = 0;
+let isDragging = false;
+let startX = 0;
+
+function updateRotation(){
+    viewer.style.transform =
+        `rotateY(${rotateY}deg)`;
+}
+
+function rotateLeft(){
+    rotateY -= 90;
+    updateRotation();
+}
+
+function rotateRight(){
+    rotateY += 90;
+    updateRotation();
+}
+
+/* Drag Rotate */
+
+document.addEventListener("mousedown",(e)=>{
+    isDragging = true;
+    startX = e.clientX;
+});
+
+document.addEventListener("mouseup",()=>{
+    isDragging = false;
+});
+
+document.addEventListener("mousemove",(e)=>{
+
+    if(!isDragging) return;
+
+    const delta = e.clientX - startX;
+
+    rotateY += delta * 0.3;
+
+    updateRotation();
+
+    startX = e.clientX;
+});
+
+/* Mobile Touch */
+
+document.addEventListener("touchstart",(e)=>{
+    startX = e.touches[0].clientX;
+});
+
+document.addEventListener("touchmove",(e)=>{
+
+    const delta = e.touches[0].clientX - startX;
+
+    rotateY += delta * 0.25;
+
+    updateRotation();
+
+    startX = e.touches[0].clientX;
+});
+
+</script>
+
+</body>
+</html>
